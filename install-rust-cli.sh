@@ -28,25 +28,27 @@ append_path_line_if_missing() {
 }
 
 select_rc_file() {
-  shell_name=""
+  shell_name="${SHELL##*/}"
 
-  if [ -n "${ZSH_VERSION:-}" ]; then
-    shell_name="zsh"
-  elif [ -n "${BASH_VERSION:-}" ]; then
-    shell_name="bash"
-  else
-    shell_name="${SHELL##*/}"
+  if [ -z "$shell_name" ] || [ "$shell_name" = "$SHELL" ]; then
+    if [ -n "${ZSH_VERSION:-}" ]; then
+      shell_name="zsh"
+    elif [ -n "${BASH_VERSION:-}" ]; then
+      shell_name="bash"
+    else
+      shell_name="sh"
+    fi
   fi
 
   case "$shell_name" in
     zsh)
-      echo "$HOME/.zshrc"
+      echo "$HOME/.zprofile"
       ;;
     bash)
-      if [ "$OS" = "Darwin" ] && [ -f "$HOME/.bash_profile" ]; then
+      if [ "$OS" = "Darwin" ]; then
         echo "$HOME/.bash_profile"
       else
-        echo "$HOME/.bashrc"
+        echo "$HOME/.profile"
       fi
       ;;
     *)
