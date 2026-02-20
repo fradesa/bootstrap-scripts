@@ -1,5 +1,8 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env sh
+set -eu
+if (set -o pipefail) 2>/dev/null; then
+  set -o pipefail
+fi
 
 INSTALL_DIR="${INSTALL_DIR:-}"
 REF="${REF:-main}"
@@ -17,23 +20,19 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "'$1' is required but not installed"
 }
 
-is_sourced() {
-  [[ "${BASH_SOURCE[0]}" != "${0}" ]]
-}
-
 append_path_line_if_missing() {
-  local rc_file="$1"
-  local line="export PATH=\"$INSTALL_DIR:\$PATH\""
+  rc_file="$1"
+  line="export PATH=\"$INSTALL_DIR:\$PATH\""
   [ -f "$rc_file" ] || touch "$rc_file"
   grep -F "$line" "$rc_file" >/dev/null 2>&1 || echo "$line" >> "$rc_file"
 }
 
 select_rc_file() {
-  local shell_name
+  shell_name=""
 
   if [ -n "${ZSH_VERSION:-}" ]; then
     shell_name="zsh"
-  elif [ -n "${BASH_VERSION:-}" ] && is_sourced; then
+  elif [ -n "${BASH_VERSION:-}" ]; then
     shell_name="bash"
   else
     shell_name="${SHELL##*/}"
@@ -64,21 +63,32 @@ infer_binary_from_repo() {
 }
 
 find_built_binary() {
-  local release_dir="$1"
-  local expected="$2"
+  release_dir="$1"
+  expected="$2"
 
   if [ -x "$release_dir/$expected" ]; then
     echo "$release_dir/$expected"
     return
   fi
 
-  local candidates=()
-  while IFS= read -r path; do
-    candidates+=("$path")
-  done < <(find "$release_dir" -maxdepth 1 -type f -perm -111 ! -name '*.d' ! -name '*.rlib' ! -name '*.rmeta' ! -name '*.so' ! -name '*.dylib' ! -name '*.dll')
+  candidate=""
+  count=0
+  for path in "$release_dir"/*; do
+    [ -f "$path" ] || continue
+    [ -x "$path" ] || continue
 
-  if [ "${#candidates[@]}" -eq 1 ]; then
-    echo "${candidates[0]}"
+    case "$path" in
+      *.d|*.rlib|*.rmeta|*.so|*.dylib|*.dll)
+        continue
+        ;;
+    esac
+
+    candidate="$path"
+    count=$((count + 1))
+  done
+
+  if [ "$count" -eq 1 ]; then
+    echo "$candidate"
     return
   fi
 
@@ -115,7 +125,7 @@ mkdir -p "$TMP_ROOT"
 TMP_DIR="$TMP_ROOT"
 rm -rf "$TMP_DIR"
 mkdir -p "$TMP_DIR"
-trap 'rm -rf "$TMP_DIR"' EXIT
+trap 'rm -rf "$TMP_DIR"' 0
 
 echo "Cloning ${REPO_SSH_URL} (ref: ${REF})"
 git clone --depth 1 --branch "$REF" "$REPO_SSH_URL" "$TMP_DIR/repo" \
@@ -143,13 +153,6 @@ export PATH="$INSTALL_DIR:$PATH"
 hash -r || true
 
 echo "Installed $BINARY to $INSTALL_DIR/$BINARY"
-
-if is_sourced; then
-  # shellcheck disable=SC1090
-  source "$RC_TO_UPDATE" || true
-  echo "PATH updated and $BINARY is available in this shell."
-else
-  echo "PATH persisted in $RC_TO_UPDATE"
-  echo "To use $BINARY immediately in this shell, run:"
-  echo "  source \"$RC_TO_UPDATE\""
-fi
+echo "PATH persisted in $RC_TO_UPDATE"
+echo "To use $BINARY immediately in this shell, run:"
+echo "  . \"$RC_TO_UPDATE\""
