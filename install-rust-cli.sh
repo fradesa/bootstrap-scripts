@@ -5,11 +5,13 @@ if (set -o pipefail) 2>/dev/null; then
 fi
 
 INSTALL_DIR="${INSTALL_DIR:-}"
+INSTALL_ROOT="${INSTALL_ROOT:-}"
 REF="${REF:-main}"
 GIT_HOST="${GIT_HOST:-github.com}"
 REPO="${REPO:-}"
 PACKAGE="${PACKAGE:-}"
 BINARY="${BINARY:-}"
+REPO_URL="${REPO_URL:-}"
 
 fail() {
   echo "error: $*" >&2
@@ -57,57 +59,27 @@ select_rc_file() {
   esac
 }
 
-infer_binary_from_repo() {
+infer_repo_name() {
   case "$REPO" in
     */*) echo "${REPO#*/}" ;;
     *) fail "REPO must be in owner/repo format" ;;
   esac
 }
 
-find_built_binary() {
-  release_dir="$1"
-  expected="$2"
-
-  if [ -x "$release_dir/$expected" ]; then
-    echo "$release_dir/$expected"
-    return
-  fi
-
-  candidate=""
-  count=0
-  for path in "$release_dir"/*; do
-    [ -f "$path" ] || continue
-    [ -x "$path" ] || continue
-
-    case "$path" in
-      *.d|*.rlib|*.rmeta|*.so|*.dylib|*.dll)
-        continue
-        ;;
-    esac
-
-    candidate="$path"
-    count=$((count + 1))
-  done
-
-  if [ "$count" -eq 1 ]; then
-    echo "$candidate"
-    return
-  fi
-
-  fail "could not determine built binary in $release_dir (set BINARY explicitly)"
-}
-
 if [ -z "$REPO" ]; then
   fail "REPO is required (format: owner/repo). Example: export REPO=fradesa/sdkraft"
 fi
 
-REPO_NAME="$(infer_binary_from_repo)"
+REPO_NAME="$(infer_repo_name)"
 
 if [ -z "$BINARY" ]; then
   BINARY="$REPO_NAME"
 fi
 
-need_cmd git
+if [ -z "$PACKAGE" ]; then
+  PACKAGE="$BINARY"
+fi
+
 need_cmd cargo
 
 OS="$(uname -s)"
@@ -116,37 +88,39 @@ case "$OS" in
   *) fail "unsupported OS: $OS (supported: Linux/macOS)" ;;
 esac
 
-if [ -z "$INSTALL_DIR" ]; then
-  INSTALL_DIR="$HOME/.${REPO_NAME}/bin"
+if [ -z "$INSTALL_ROOT" ]; then
+  INSTALL_ROOT="$HOME/.${REPO_NAME}"
 fi
 
-REPO_SSH_URL="git@${GIT_HOST}:${REPO}.git"
-TMP_ROOT="$HOME/.${REPO_NAME}/tmp"
+CARGO_BIN_DIR="$INSTALL_ROOT/bin"
 
-mkdir -p "$TMP_ROOT"
-TMP_DIR="$TMP_ROOT"
-rm -rf "$TMP_DIR"
-mkdir -p "$TMP_DIR"
-trap 'rm -rf "$TMP_DIR"' 0
+if [ -z "$INSTALL_DIR" ]; then
+  INSTALL_DIR="$CARGO_BIN_DIR"
+fi
 
-echo "Cloning ${REPO_SSH_URL} (ref: ${REF})"
-git clone --depth 1 --branch "$REF" "$REPO_SSH_URL" "$TMP_DIR/repo" \
-  || fail "git clone failed (check SSH auth and repository/ref)"
+if [ -z "$REPO_URL" ]; then
+  REPO_URL="https://${GIT_HOST}/${REPO}.git"
+fi
 
-echo "Building project with cargo"
-(
-  cd "$TMP_DIR/repo"
-  if [ -n "$PACKAGE" ]; then
-    cargo build -p "$PACKAGE" --release --locked
-  else
-    cargo build --release --locked
-  fi
-)
+echo "Installing ${PACKAGE} (${BINARY}) from ${REPO_URL} (ref: ${REF})"
 
-BIN_SRC="$(find_built_binary "$TMP_DIR/repo/target/release" "$BINARY")"
-mkdir -p "$INSTALL_DIR"
-cp "$BIN_SRC" "$INSTALL_DIR/$BINARY"
-chmod +x "$INSTALL_DIR/$BINARY"
+cargo install \
+  --git "$REPO_URL" \
+  --branch "$REF" \
+  --locked \
+  --force \
+  --root "$INSTALL_ROOT" \
+  --bin "$BINARY" \
+  "$PACKAGE" \
+  || fail "cargo install failed"
+
+[ -x "$CARGO_BIN_DIR/$BINARY" ] || fail "installed binary not found at $CARGO_BIN_DIR/$BINARY"
+
+if [ "$INSTALL_DIR" != "$CARGO_BIN_DIR" ]; then
+  mkdir -p "$INSTALL_DIR"
+  cp "$CARGO_BIN_DIR/$BINARY" "$INSTALL_DIR/$BINARY"
+  chmod +x "$INSTALL_DIR/$BINARY"
+fi
 
 RC_TO_UPDATE="$(select_rc_file)"
 
