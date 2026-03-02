@@ -12,6 +12,7 @@ REPO="${REPO:-}"
 PACKAGE="${PACKAGE:-}"
 BINARY="${BINARY:-}"
 REPO_URL="${REPO_URL:-}"
+CARGO_NET_GIT_FETCH_WITH_CLI="${CARGO_NET_GIT_FETCH_WITH_CLI:-true}"
 
 fail() {
   echo "error: $*" >&2
@@ -104,7 +105,7 @@ fi
 
 echo "Installing ${PACKAGE} (${BINARY}) from ${REPO_URL} (ref: ${REF})"
 
-cargo install \
+CARGO_NET_GIT_FETCH_WITH_CLI="$CARGO_NET_GIT_FETCH_WITH_CLI" cargo install \
   --git "$REPO_URL" \
   --branch "$REF" \
   --locked \
